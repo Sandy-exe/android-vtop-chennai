@@ -16,6 +16,7 @@ import androidx.room.PrimaryKey;
                 onDelete = CASCADE
         )
 )
+
 public class Attendance {
     @PrimaryKey(autoGenerate = true)
     public int id;

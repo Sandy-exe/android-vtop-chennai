@@ -18,6 +18,9 @@ public class Course {
     @ColumnInfo(name = "title")
     public String title;
 
+    @ColumnInfo(name = "classId")
+    public String classId;
+
     @ColumnInfo(name = "type")
     public String type;
 

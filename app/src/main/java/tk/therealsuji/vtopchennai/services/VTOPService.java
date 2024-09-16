@@ -63,6 +63,8 @@ import tk.therealsuji.vtopchennai.interfaces.MarksDao;
 import tk.therealsuji.vtopchennai.interfaces.ReceiptsDao;
 import tk.therealsuji.vtopchennai.interfaces.StaffDao;
 import tk.therealsuji.vtopchennai.interfaces.TimetableDao;
+import tk.therealsuji.vtopchennai.models.AttendanceDetailsDao;
+
 import tk.therealsuji.vtopchennai.models.Attendance;
 import tk.therealsuji.vtopchennai.models.Course;
 import tk.therealsuji.vtopchennai.models.CumulativeMark;
@@ -73,6 +75,7 @@ import tk.therealsuji.vtopchennai.models.Slot;
 import tk.therealsuji.vtopchennai.models.Spotlight;
 import tk.therealsuji.vtopchennai.models.Staff;
 import tk.therealsuji.vtopchennai.models.Timetable;
+import tk.therealsuji.vtopchennai.models.AttendanceDetails;
 
 public class VTOPService extends Service {
     public static final int CAPTCHA_DEFAULT = 1;
@@ -97,6 +100,7 @@ public class VTOPService extends Service {
     Map<String, String> semesters;
     String username, password, semesterID;
     CompositeDisposable compositeDisposable;
+    List<Course> courses;
 
     public void clearCallback() {
         this.callback = null;
@@ -110,8 +114,7 @@ public class VTOPService extends Service {
                 this,
                 0,
                 endServiceIntent,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_CANCEL_CURRENT
-        );
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_CANCEL_CURRENT);
 
         NotificationHelper notificationHelper = new NotificationHelper(getApplicationContext());
         this.notificationManager = notificationHelper.getManager();
@@ -138,14 +141,18 @@ public class VTOPService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent.getAction() != null && intent.getAction().equals(END_SERVICE_ACTION)) {
             this.endService(true);
-            this.notificationManager.cancel(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD);  // In case the notification isn't removed for some reason
+            this.notificationManager.cancel(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD); // In case the
+                                                                                               // notification isn't
+                                                                                               // removed for some
+                                                                                               // reason
         } else {
             this.startForeground(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD, this.notification.build());
 
             this.counter = 0;
             this.maxProgress = 12;
 
-            SharedPreferences encryptedSharedPreferences = SettingsRepository.getEncryptedSharedPreferences(getApplicationContext());
+            SharedPreferences encryptedSharedPreferences = SettingsRepository
+                    .getEncryptedSharedPreferences(getApplicationContext());
 
             if (encryptedSharedPreferences == null) {
                 error(102, "Failed to fetch credentials.");
@@ -183,10 +190,10 @@ public class VTOPService extends Service {
             @Override
             public void onPageFinished(WebView view, String url) {
                 /*
-                 *  JSON response format
-                 *  {
-                 *      "page_type": "LANDING"|"HOME"|"LOGIN"
-                 *  }
+                 * JSON response format
+                 * {
+                 * "page_type": "LANDING"|"HOME"|"LOGIN"
+                 * }
                  */
                 view.evaluateJavascript("(function() {" +
                         "const response = {" +
@@ -199,53 +206,55 @@ public class VTOPService extends Service {
                         "}" +
                         "return response;" +
                         "})();", responseString -> {
-                    try {
-                        JSONObject response = new JSONObject(responseString);
-                        String pageType = response.getString("page_type");
+                            try {
+                                JSONObject response = new JSONObject(responseString);
+                                String pageType = response.getString("page_type");
 
-                        switch (pageType) {
-                            case "LANDING":
-                                if (counter >= 10) {
-                                    error(101, "Couldn't connect to the server.");
-                                    endService(true);
-                                    return;
+                                switch (pageType) {
+                                    case "LANDING":
+                                        if (counter >= 10) {
+                                            error(101, "Couldn't connect to the server.");
+                                            endService(true);
+                                            return;
+                                        }
+
+                                        openSignIn();
+                                        ++counter;
+
+                                        pageState = PageState.LANDING;
+                                        break;
+                                    case "LOGIN":
+                                        if (pageState == PageState.LOGIN) {
+                                            break;
+                                        }
+
+                                        getCaptchaType();
+                                        pageState = PageState.LOGIN;
+                                        break;
+                                    case "HOME":
+                                        if (pageState == PageState.HOME) {
+                                            break;
+                                        }
+
+                                        getSemesters();
+                                        pageState = PageState.HOME;
+                                        break;
+                                    default:
+                                        throw new Error("Unknown page exception.");
                                 }
-
-                                openSignIn();
-                                ++counter;
-
-                                pageState = PageState.LANDING;
-                                break;
-                            case "LOGIN":
-                                if (pageState == PageState.LOGIN) {
-                                    break;
-                                }
-
-                                getCaptchaType();
-                                pageState = PageState.LOGIN;
-                                break;
-                            case "HOME":
-                                if (pageState == PageState.HOME) {
-                                    break;
-                                }
-
-                                getSemesters();
-                                pageState = PageState.HOME;
-                                break;
-                            default:
-                                throw new Error("Unknown page exception.");
-                        }
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-                });
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                        });
             }
         });
     }
 
     /**
-     * VTOP randomly blocks user agents (I'm guessing to prevent people from using this app).
-     * If a user agent is blocked, a new authorised one is fetched from my server and stored in shared preferences.
+     * VTOP randomly blocks user agents (I'm guessing to prevent people from using
+     * this app).
+     * If a user agent is blocked, a new authorised one is fetched from my server
+     * and stored in shared preferences.
      */
     private void updateUserAgent() {
         SettingsRepository.fetchAboutJson(false)
@@ -373,10 +382,10 @@ public class VTOPService extends Service {
      */
     private void openSignIn() {
         /*
-         *  JSON response format
-         *  {
-         *      "success": true|false
-         *  }
+         * JSON response format
+         * {
+         * "success": true|false
+         * }
          */
         webView.evaluateJavascript("(function() {" +
                 "const response = {" +
@@ -393,12 +402,12 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                this.reloadPage("/login", false);
-            } catch (Exception e) {
-                error(103, e.getLocalizedMessage());
-            }
-        });
+                    try {
+                        this.reloadPage("/login", false);
+                    } catch (Exception e) {
+                        error(103, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -406,11 +415,11 @@ public class VTOPService extends Service {
      */
     private void getCaptchaType() {
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "captcha_type": "DEFAULT"|"GRECAPTCHA"
-         *  }
+         * {
+         * "captcha_type": "DEFAULT"|"GRECAPTCHA"
+         * }
          */
         webView.evaluateJavascript("(function() {" +
                 "const response = {" +
@@ -421,55 +430,57 @@ public class VTOPService extends Service {
                 "}" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                this.notification.setContentTitle(getString(R.string.captcha_wait));
-                this.notificationManager.notify(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD, notification.build());
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        this.notification.setContentTitle(getString(R.string.captcha_wait));
+                        this.notificationManager.notify(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD,
+                                notification.build());
 
-                if (response.getString("captcha_type").equals("DEFAULT")) {
-                    getCaptcha();
-                } else {
-                    executeCaptcha();
-                }
-            } catch (Exception e) {
-                error(104, e.getLocalizedMessage());
-            }
-        });
+                        if (response.getString("captcha_type").equals("DEFAULT")) {
+                            getCaptcha();
+                        } else {
+                            executeCaptcha();
+                        }
+                    } catch (Exception e) {
+                        error(104, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
      * For Default Captcha
-     * Function to get the captcha from the portal's sign in page and load it into the ImageView.
+     * Function to get the captcha from the portal's sign in page and load it into
+     * the ImageView.
      */
     private void getCaptcha() {
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "captcha": "data:image/png:base64, ContinuousGibberishText...."
-         *  }
+         * {
+         * "captcha": "data:image/png:base64, ContinuousGibberishText...."
+         * }
          */
         this.webView.evaluateJavascript("(function() {" +
                 "return {" +
                 "   captcha: $('#captchaBlock img').get(0).src" +
                 "};" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
+                    try {
+                        JSONObject response = new JSONObject(responseString);
 
-                String base64Captcha = response.getString("captcha").split(",")[1];
-                byte[] decodedString = Base64.decode(base64Captcha, Base64.DEFAULT);
-                Bitmap decodedImage = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
+                        String base64Captcha = response.getString("captcha").split(",")[1];
+                        byte[] decodedString = Base64.decode(base64Captcha, Base64.DEFAULT);
+                        Bitmap decodedImage = BitmapFactory.decodeByteArray(decodedString, 0, decodedString.length);
 
-                try {
-                    this.callback.onRequestCaptcha(CAPTCHA_DEFAULT, decodedImage, null);
-                } catch (Exception ignored) {
-                    this.endService(true);
-                }
-            } catch (Exception e) {
-                error(105, e.getLocalizedMessage());
-            }
-        });
+                        try {
+                            this.callback.onRequestCaptcha(CAPTCHA_DEFAULT, decodedImage, null);
+                        } catch (Exception ignored) {
+                            this.endService(true);
+                        }
+                    } catch (Exception e) {
+                        error(105, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -485,21 +496,22 @@ public class VTOPService extends Service {
         }
 
         /*
-            Overriding the existing onSubmit function and attempting to render the reCaptcha
+         * Overriding the existing onSubmit function and attempting to render the
+         * reCaptcha
          */
         webView.evaluateJavascript("function callBuiltValidation(token) {" +
                 "    Android.signIn(token);" +
                 "}" +
                 "(function() {" +
                 "var executeInterval = setInterval(function() {" +
-                "    try {" +   // typeof grecaptcha != 'undefined' always returns true for some reason
+                "    try {" + // typeof grecaptcha != 'undefined' always returns true for some reason
                 "        grecaptcha.execute();" +
                 "        clearInterval(executeInterval);" +
                 "    } catch (err) {" +
                 "    }" +
                 "}, 500);" +
                 "})();", value -> {
-        });
+                });
     }
 
     /**
@@ -523,20 +535,24 @@ public class VTOPService extends Service {
                     }
 
                     /*
-                     *  JSON response format
-                     *  {
-                     *      "authorized": true|false,
-                     *      "error_message": null,
-                     *      "error_code": 0
-                     *  }
+                     * JSON response format
+                     * {
+                     * "authorized": true|false,
+                     * "error_message": null,
+                     * "error_code": 0
+                     * }
                      */
                     webView.evaluateJavascript("(function() {" +
                             "if (typeof captchaInterval != 'undefined') clearInterval(captchaInterval);" +
                             "if (typeof executeInterval != 'undefined') clearInterval(executeInterval);" +
-                            "$('#vtopLoginForm [name=\"username\"]').val('" + username.replaceAll("'", "\\\\'") + "');" +
-                            "$('#vtopLoginForm [name=\"password\"]').val('" + password.replaceAll("'", "\\\\'") + "');" +
-                            "$('#vtopLoginForm [name=\"captchaStr\"]').val('" + captcha.replaceAll("'", "\\\\'") + "');" +
-                            "$('#vtopLoginForm [name=\"gResponse\"]').val('" + captcha.replaceAll("'", "\\\\'") + "');" +
+                            "$('#vtopLoginForm [name=\"username\"]').val('" + username.replaceAll("'", "\\\\'") + "');"
+                            +
+                            "$('#vtopLoginForm [name=\"password\"]').val('" + password.replaceAll("'", "\\\\'") + "');"
+                            +
+                            "$('#vtopLoginForm [name=\"captchaStr\"]').val('" + captcha.replaceAll("'", "\\\\'") + "');"
+                            +
+                            "$('#vtopLoginForm [name=\"gResponse\"]').val('" + captcha.replaceAll("'", "\\\\'") + "');"
+                            +
                             "var response = {" +
                             "    authorised: false," +
                             "    error_message: null," +
@@ -556,9 +572,11 @@ public class VTOPService extends Service {
                             "            }" +
                             "            var pageContent = res.toLowerCase();" +
                             "            var invalidCaptchaRegex = new RegExp(/invalid\\s*captcha/);" +
-                            "            var invalidCredentialsRegex = new RegExp(/invalid\\s*(user\\s*name|login\\s*id|user\\s*id)\\s*\\/\\s*password/);" +
+                            "            var invalidCredentialsRegex = new RegExp(/invalid\\s*(user\\s*name|login\\s*id|user\\s*id)\\s*\\/\\s*password/);"
+                            +
                             "            var accountLockedRegex = new RegExp(/account\\s*is\\s*locked/);" +
-                            "            var maxFailAttemptsRegex = new RegExp(/maximum\\s*fail\\s*attempts\\s*reached/);" +
+                            "            var maxFailAttemptsRegex = new RegExp(/maximum\\s*fail\\s*attempts\\s*reached/);"
+                            +
                             "            if (invalidCaptchaRegex.test(pageContent)) {" +
                             "                response.error_message = 'Invalid Captcha';" +
                             "                response.error_code = 1;" +
@@ -569,7 +587,8 @@ public class VTOPService extends Service {
                             "                response.error_message = 'Your Account is Locked';" +
                             "                response.error_code = 3;" +
                             "            } else if(maxFailAttemptsRegex.test(pageContent)) {" +
-                            "                response.error_message = 'Maximum login attempts reached, open VTOP in your browser to reset your password';" +
+                            "                response.error_message = 'Maximum login attempts reached, open VTOP in your browser to reset your password';"
+                            +
                             "                response.error_code = 4;" +
                             "            } else {" +
                             "                response.error_message = 'Unknown error';" +
@@ -580,59 +599,63 @@ public class VTOPService extends Service {
                             "});" +
                             "return response;" +
                             "})();", responseString -> {
-                        try {
-                            JSONObject response = new JSONObject(responseString);
-                            boolean isAuthorised = response.getBoolean("authorised");
+                                try {
+                                    JSONObject response = new JSONObject(responseString);
+                                    boolean isAuthorised = response.getBoolean("authorised");
 
-                            if (isAuthorised) {
-                                this.reloadPage("/content", false);
-                            } else {
-                                String errorMessage = response.getString("error_message");
-                                Toast.makeText(getApplicationContext(), errorMessage, Toast.LENGTH_SHORT).show();
+                                    if (isAuthorised) {
+                                        this.reloadPage("/content", false);
+                                    } else {
+                                        String errorMessage = response.getString("error_message");
+                                        Toast.makeText(getApplicationContext(), errorMessage, Toast.LENGTH_SHORT)
+                                                .show();
 
-                                int errorCode = response.getInt("error_code");
-                                if (errorCode == 1) {
-                                    this.reloadPage("/login", false);
-                                } else {
-                                    if (errorCode == 2) {
-                                        try {
-                                            this.callback.onForceSignOut();
-                                        } catch (Exception ignored) {}
+                                        int errorCode = response.getInt("error_code");
+                                        if (errorCode == 1) {
+                                            this.reloadPage("/login", false);
+                                        } else {
+                                            if (errorCode == 2) {
+                                                try {
+                                                    this.callback.onForceSignOut();
+                                                } catch (Exception ignored) {
+                                                }
+                                            }
+
+                                            this.endService(true);
+                                        }
                                     }
-
-                                    this.endService(true);
+                                } catch (Exception e) {
+                                    error(106, e.getLocalizedMessage());
                                 }
-                            }
-                        } catch (Exception e) {
-                            error(106, e.getLocalizedMessage());
-                        }
-                    });
+                            });
                 });
     }
 
     /**
-     * Function to get a list of the semesters. These semesters are obtained from the Timetable page.
+     * Function to get a list of the semesters. These semesters are obtained from
+     * the Timetable page.
      */
     private void getSemesters() {
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "semesters": [
-         *          {
-         *              "name": "Fall Semester 2020-21",
-         *              "id": "CH2020211"
-         *          },
-         *          {
-         *              "name": "Winter Semester 2020-21",
-         *              "id": "CH2020215"
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "semesters": [
+         * {
+         * "name": "Fall Semester 2020-21",
+         * "id": "CH2020211"
+         * },
+         * {
+         * "name": "Winter Semester 2020-21",
+         * "id": "CH2020215"
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {};" +
                 "$.ajax({" +
                 "    type: 'POST'," +
@@ -663,38 +686,41 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
+                    try {
+                        JSONObject response = new JSONObject(responseString);
 
-                if (response.has("error_code")) {
-                    if (response.getInt("error_code") == 1) {
-                        Toast.makeText(getApplicationContext(), "Error " + 107 + ". Unauthorised user agent, attempting to update. Report a bug if this issue prevails.", Toast.LENGTH_SHORT).show();
-                        updateUserAgent();
-                        return;
+                        if (response.has("error_code")) {
+                            if (response.getInt("error_code") == 1) {
+                                Toast.makeText(getApplicationContext(), "Error " + 107
+                                        + ". Unauthorised user agent, attempting to update. Report a bug if this issue prevails.",
+                                        Toast.LENGTH_SHORT).show();
+                                updateUserAgent();
+                                return;
+                            }
+                        }
+
+                        JSONArray semesterArray = response.getJSONArray("semesters");
+                        this.semesters = new HashMap<>();
+
+                        for (int i = 0; i < semesterArray.length(); ++i) {
+                            JSONObject semesterObject = semesterArray.getJSONObject(i);
+                            this.semesters.put(semesterObject.getString("name"), semesterObject.getString("id"));
+                        }
+
+                        try {
+                            this.notification.setContentTitle(getString(R.string.semester_wait));
+                            this.notificationManager.notify(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD,
+                                    notification.build());
+
+                            String[] semesters = this.semesters.keySet().toArray(new String[0]);
+                            this.callback.onRequestSemester(semesters);
+                        } catch (Exception ignored) {
+                            this.endService(true);
+                        }
+                    } catch (Exception e) {
+                        error(201, e.getLocalizedMessage());
                     }
-                }
-
-                JSONArray semesterArray = response.getJSONArray("semesters");
-                this.semesters = new HashMap<>();
-
-                for (int i = 0; i < semesterArray.length(); ++i) {
-                    JSONObject semesterObject = semesterArray.getJSONObject(i);
-                    this.semesters.put(semesterObject.getString("name"), semesterObject.getString("id"));
-                }
-
-                try {
-                    this.notification.setContentTitle(getString(R.string.semester_wait));
-                    this.notificationManager.notify(SettingsRepository.NOTIFICATION_ID_VTOP_DOWNLOAD, notification.build());
-
-                    String[] semesters = this.semesters.keySet().toArray(new String[0]);
-                    this.callback.onRequestSemester(semesters);
-                } catch (Exception ignored) {
-                    this.endService(true);
-                }
-            } catch (Exception e) {
-                error(201, e.getLocalizedMessage());
-            }
-        });
+                });
     }
 
     /**
@@ -712,14 +738,15 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_profile);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "name": "JOHN DOE"
-         *  }
+         * {
+         * "name": "JOHN DOE"
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {};" +
                 "$.ajax({" +
                 "    type: 'POST'," +
@@ -742,15 +769,15 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                sharedPreferences.edit().putString("name", response.getString("name")).apply();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        sharedPreferences.edit().putString("name", response.getString("name")).apply();
 
-                this.getCreditsCGPA();
-            } catch (Exception e) {
-                error(301, e.getLocalizedMessage());
-            }
-        });
+                        this.getCreditsCGPA();
+                    } catch (Exception e) {
+                        error(301, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -760,15 +787,16 @@ public class VTOPService extends Service {
         this.updateProgress(null);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "cgpa": 8.58
-         *      "total_credits": 64
-         *  }
+         * {
+         * "cgpa": 8.58
+         * "total_credits": 64
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {};" +
                 "$.ajax({" +
                 "    type: 'POST'," +
@@ -800,16 +828,17 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                this.sharedPreferences.edit().putFloat("cgpa", (float) response.getDouble("cgpa")).apply();
-                this.sharedPreferences.edit().putFloat("totalCredits", (float) response.getDouble("total_credits")).apply();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        this.sharedPreferences.edit().putFloat("cgpa", (float) response.getDouble("cgpa")).apply();
+                        this.sharedPreferences.edit()
+                                .putFloat("totalCredits", (float) response.getDouble("total_credits")).apply();
 
-                this.downloadCourses();
-            } catch (Exception e) {
-                error(302, e.getLocalizedMessage());
-            }
-        });
+                        this.downloadCourses();
+                    } catch (Exception e) {
+                        error(302, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -819,28 +848,30 @@ public class VTOPService extends Service {
         this.updateProgress(R.string.downloading_courses);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "courses": [
-         *          {
-         *              "code": "CSE1001",
-         *              "title": "Problem Solving and Programming",
-         *              "type": "lab"|"project"|"theory",
-         *              "credits": 3,
-         *              "slots": [
-         *                  "L45",
-         *                  "L46"
-         *              ],
-         *              "venue": "AB2 - 015",
-         *              "faculty": "JOHN DOE"
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "courses": [
+         * {
+         * "code": "CSE1001",
+         * "title": "Problem Solving and Programming",
+         * "type": "lab"|"project"|"theory",
+         * "classId" : "CHXXXXXXXX",
+         * "credits": 3,
+         * "slots": [
+         * "L45",
+         * "L46"
+         * ],
+         * "venue": "AB2 - 015",
+         * "faculty": "JOHN DOE"
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&semesterSubId=' + '" + semesterID + "' + '&authorizedID=' + $('#authorizedIDX').val();" +
+                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&semesterSubId=' + '" + semesterID
+                + "' + '&authorizedID=' + $('#authorizedIDX').val();" +
                 "var response = {" +
                 "    courses: []" +
                 "};" +
@@ -856,7 +887,7 @@ public class VTOPService extends Service {
                 "        }" +
                 "        var table = doc.getElementById('studentDetailsList').getElementsByTagName('table')[0];" +
                 "        var headings = table.getElementsByTagName('th');" +
-                "        var courseIndex, creditsIndex, slotVenueIndex, facultyIndex;" +
+                "        var courseIndex, creditsIndex, slotVenueIndex, facultyIndex, classIdIndex;" +
                 "        for(var i = 0; i < headings.length; ++i) {" +
                 "            var heading = headings[i].innerText.toLowerCase();" +
                 "            if (heading == 'course') {" +
@@ -867,128 +898,148 @@ public class VTOPService extends Service {
                 "                slotVenueIndex = i;" +
                 "            } else if (heading.includes('faculty')) {" +
                 "                facultyIndex = i;" +
+                "            } else if (heading == 'Class Nbr') {" +
+                "                classIdIndex = i;" +
                 "            }" +
                 "        }" +
                 "        var cells = table.getElementsByTagName('td');" +
                 "        var headingOffset = headings[0].innerText.toLowerCase().includes('invoice') ? -1 : 0;" +
                 "        var cellOffset = cells[0].innerText.toLowerCase().includes('invoice') ? 1 : 0;" +
                 "        var offset = headingOffset + cellOffset;" +
-                "        while (courseIndex < cells.length && creditsIndex < cells.length && slotVenueIndex < cells.length && facultyIndex < cells.length) {" +
+                "        while (courseIndex < cells.length && creditsIndex < cells.length && slotVenueIndex < cells.length && facultyIndex < cells.length && classIdIndex < cells.length) {"
+                +
                 "            var course = {};" +
-                "            var rawCourse = cells[courseIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,' ');" +
+                "            var rawCourse = cells[courseIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,' ');"
+                +
                 "            var rawCourseType = rawCourse.split('(').slice(-1)[0].toLowerCase();" +
-                "            var rawCredits = cells[creditsIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,' ').trim().split(' ');" +
-                "            var rawSlotVenue = cells[slotVenueIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,'').split('-');" +
-                "            var rawFaculty = cells[facultyIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,'').split('-');" +
+                "            var rawCredits = cells[creditsIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,' ').trim().split(' ');"
+                +
+                "            var rawSlotVenue = cells[slotVenueIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,'').split('-');"
+                +
+                "            var rawFaculty = cells[facultyIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,'').split('-');"
+                +
+                "            var rawClassId = cells[classIdIndex + offset].innerText.replace(/\\t/g,'').replace(/\\n/g,' ').trim();"
+                +
                 "            course.code = rawCourse.split('-')[0].trim();" +
                 "            course.title = rawCourse.split('-').slice(1).join('-').split('(')[0].trim();" +
-                "            course.type = (rawCourseType.includes('lab')) ? 'lab' : ((rawCourseType.includes('project')) ? 'project' : 'theory');" +
+                "            course.type = (rawCourseType.includes('lab')) ? 'lab' : ((rawCourseType.includes('project')) ? 'project' : 'theory');"
+                +
                 "            course.credits = parseInt(rawCredits[rawCredits.length - 1]) || 0;" +
                 "            course.slots = rawSlotVenue[0].trim().split('+');" +
                 "            course.venue = rawSlotVenue.slice(1, rawSlotVenue.length).join(' - ').trim();" +
                 "            course.faculty = rawFaculty[0].trim();" +
+                "            course.classId = rawClassId;" +
                 "            response.courses.push(course);" +
                 "            courseIndex += headings.length + headingOffset;" +
                 "            creditsIndex += headings.length + headingOffset;" +
                 "            slotVenueIndex += headings.length + headingOffset;" +
                 "            facultyIndex += headings.length + headingOffset;" +
+                "            classIdIndex += headings.length + headingOffset;" +
                 "        }" +
                 "    }" +
                 "});" +
-                "return response;" +
+                "return JSON.stringify(response);" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray courseArray = response.getJSONArray("courses");
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray courseArray = response.getJSONArray("courses");
 
-                List<Course> courses = new ArrayList<>();
-                List<Slot> slots = new ArrayList<>();
+                        this.courses = new ArrayList<>();
+                        List<Slot> slots = new ArrayList<>();
 
-                this.theorySlots = new HashMap<>();
-                this.labSlots = new HashMap<>();
-                this.projectSlots = new HashMap<>();
 
-                this.theoryCourses = new HashMap<>();
-                this.labCourses = new HashMap<>();
-                this.projectCourses = new HashMap<>();
+                        this.theorySlots = new HashMap<>();
+                        this.labSlots = new HashMap<>();
+                        this.projectSlots = new HashMap<>();
 
-                for (int i = 0, slotId = 1; i < courseArray.length(); ++i) {
-                    JSONObject courseObject = courseArray.getJSONObject(i);
-                    Course course = new Course();
+                        this.theoryCourses = new HashMap<>();
+                        this.labCourses = new HashMap<>();
+                        this.projectCourses = new HashMap<>();
 
-                    course.id = i + 1;
-                    course.code = this.getStringValue(courseObject, "code");
-                    course.title = this.getStringValue(courseObject, "title");
-                    course.type = this.getStringValue(courseObject, "type");
-                    course.credits = this.getIntegerValue(courseObject, "credits");
-                    course.venue = this.getStringValue(courseObject, "venue");
-                    course.faculty = this.getStringValue(courseObject, "faculty");
+                        for (int i = 0, slotId = 1; i < courseArray.length(); ++i) {
+                            JSONObject courseObject = courseArray.getJSONObject(i);
+                            Course course = new Course();
 
-                    courses.add(course);
+                            course.id = i + 1;
+                            course.code = this.getStringValue(courseObject, "code");
+                            course.title = this.getStringValue(courseObject, "title");
+                            course.type = this.getStringValue(courseObject, "type");
+                            course.credits = this.getIntegerValue(courseObject, "credits");
+                            course.venue = this.getStringValue(courseObject, "venue");
+                            course.faculty = this.getStringValue(courseObject, "faculty");
+                            course.classId = this.getStringValue(courseObject, "classId");
 
-                    Map<String, Slot> slotReference;
+                            this.courses.add(course);
 
-                    if (course.type.equals("lab")) {
-                        slotReference = this.labSlots;
-                        this.labCourses.put(course.id, course);
-                    } else if (course.type.equals("project")) {
-                        slotReference = this.projectSlots;
-                        this.projectCourses.put(course.id, course);
-                    } else {
-                        slotReference = this.theorySlots;
-                        this.theoryCourses.put(course.id, course);
+                            Map<String, Slot> slotReference;
+
+                            if (course.type.equals("lab")) {
+                                slotReference = this.labSlots;
+                                this.labCourses.put(course.id, course);
+                            } else if (course.type.equals("project")) {
+                                slotReference = this.projectSlots;
+                                this.projectCourses.put(course.id, course);
+                            } else {
+                                slotReference = this.theorySlots;
+                                this.theoryCourses.put(course.id, course);
+                            }
+
+                            JSONArray slotsArray = courseObject.getJSONArray("slots");
+                            for (int j = 0; j < slotsArray.length(); ++j, ++slotId) {
+                                Slot slot = new Slot();
+
+                                slot.id = slotId;
+                                slot.slot = slotsArray.getString(j);
+                                slot.courseId = course.id;
+
+                                slots.add(slot);
+                                slotReference.put(slot.slot, slot);
+                            }
+                        }
+
+
+                        CoursesDao coursesDao = this.appDatabase.coursesDao();
+
+
+
+                        Observable<Object> deleteAllObservable = Observable.fromCompletable(coursesDao.deleteAll());
+                        Observable<Object> insertCoursesObservable = Observable
+                                .fromCompletable(coursesDao.insertCourses(this.courses));
+                        Observable<Object> insertSlotsObservable = Observable
+                                .fromCompletable(coursesDao.insertSlots(slots));
+
+                        Observable
+                                .concat(
+                                        deleteAllObservable,
+                                        insertCoursesObservable,
+                                        insertSlotsObservable)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(402, e.getLocalizedMessage());
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadTimetable();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(401, e.getLocalizedMessage());
                     }
+                    // The rest of your Java code
+                });
 
-                    JSONArray slotsArray = courseObject.getJSONArray("slots");
-                    for (int j = 0; j < slotsArray.length(); ++j, ++slotId) {
-                        Slot slot = new Slot();
-
-                        slot.id = slotId;
-                        slot.slot = slotsArray.getString(j);
-                        slot.courseId = course.id;
-
-                        slots.add(slot);
-                        slotReference.put(slot.slot, slot);
-                    }
-                }
-
-                CoursesDao coursesDao = this.appDatabase.coursesDao();
-
-                Observable<Object> deleteAllObservable = Observable.fromCompletable(coursesDao.deleteAll());
-                Observable<Object> insertCoursesObservable = Observable.fromCompletable(coursesDao.insertCourses(courses));
-                Observable<Object> insertSlotsObservable = Observable.fromCompletable(coursesDao.insertSlots(slots));
-
-                Observable
-                        .concat(
-                                deleteAllObservable,
-                                insertCoursesObservable,
-                                insertSlotsObservable
-                        )
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
-
-                            @Override
-                            public void onNext(@NonNull Object o) {
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(402, e.getLocalizedMessage());
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                downloadTimetable();
-                            }
-                        });
-            } catch (Exception e) {
-                error(401, e.getLocalizedMessage());
-            }
-        });
     }
 
     /**
@@ -998,41 +1049,42 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_timetable);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "lab": [
-         *          {
-         *              "start_time": "08:00",
-         *              "end_time": "08:50",
-         *              "sunday": null,
-         *              "monday": null",
-         *              "tuesday": null,
-         *              "wednesday": null,
-         *              "thursday": null,
-         *              "friday": null,
-         *              "saturday": null,
-         *          },
-         *          ...
-         *      ],
-         *      "theory": [
-         *          {
-         *              "start_time": "08:00",
-         *              "end_time": "08:50",
-         *              "sunday": null,
-         *              "monday": "A1",
-         *              "tuesday": "B1",
-         *              "wednesday": null,
-         *              "thursday": "D1",
-         *              "friday": "E1",
-         *              "saturday": "F1",
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "lab": [
+         * {
+         * "start_time": "08:00",
+         * "end_time": "08:50",
+         * "sunday": null,
+         * "monday": null",
+         * "tuesday": null,
+         * "wednesday": null,
+         * "thursday": null,
+         * "friday": null,
+         * "saturday": null,
+         * },
+         * ...
+         * ],
+         * "theory": [
+         * {
+         * "start_time": "08:00",
+         * "end_time": "08:50",
+         * "sunday": null,
+         * "monday": "A1",
+         * "tuesday": "B1",
+         * "wednesday": null,
+         * "thursday": "D1",
+         * "friday": "E1",
+         * "saturday": "F1",
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&semesterSubId=' + '" + semesterID + "' + '&authorizedID=' + $('#authorizedIDX').val();" +
+                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&semesterSubId=' + '" + semesterID
+                + "' + '&authorizedID=' + $('#authorizedIDX').val();" +
                 "var response = {" +
                 "    lab: []," +
                 "    theory: []" +
@@ -1104,124 +1156,132 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray labArray = response.getJSONArray("lab");
-                JSONArray theoryArray = response.getJSONArray("theory");
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray labArray = response.getJSONArray("lab");
+                        JSONArray theoryArray = response.getJSONArray("theory");
 
-                SettingsRepository.clearNotificationPendingIntents(this.getApplicationContext());
+                        SettingsRepository.clearNotificationPendingIntents(this.getApplicationContext());
 
-                List<Timetable> timetable = new ArrayList<>();
+                        List<Timetable> timetable = new ArrayList<>();
 
-                /*
-                    Used for converting 12-hour to 24-hour if necessary
-                 */
-                SimpleDateFormat hour24 = new SimpleDateFormat("HH:mm", Locale.ENGLISH);
-                SimpleDateFormat hour12 = new SimpleDateFormat("h:mm a", Locale.ENGLISH);
+                        /*
+                         * Used for converting 12-hour to 24-hour if necessary
+                         */
+                        SimpleDateFormat hour24 = new SimpleDateFormat("HH:mm", Locale.ENGLISH);
+                        SimpleDateFormat hour12 = new SimpleDateFormat("h:mm a", Locale.ENGLISH);
 
-                for (int i = 0; i < labArray.length() && i < theoryArray.length(); ++i) {
-                    JSONObject labObject = labArray.getJSONObject(i);
-                    JSONObject theoryObject = theoryArray.getJSONObject(i);
+                        for (int i = 0; i < labArray.length() && i < theoryArray.length(); ++i) {
+                            JSONObject labObject = labArray.getJSONObject(i);
+                            JSONObject theoryObject = theoryArray.getJSONObject(i);
 
-                    Timetable lab = new Timetable();
-                    Timetable theory = new Timetable();
+                            Timetable lab = new Timetable();
+                            Timetable theory = new Timetable();
 
-                    lab.id = i * 2 + 1;
-                    lab.startTime = this.getStringValue(labObject, "start_time");
-                    lab.endTime = this.getStringValue(labObject, "end_time");
-                    lab.sunday = this.getSlotId(this.getStringValue(labObject, "sunday"), Course.TYPE_LAB);
-                    lab.monday = this.getSlotId(this.getStringValue(labObject, "monday"), Course.TYPE_LAB);
-                    lab.tuesday = this.getSlotId(this.getStringValue(labObject, "tuesday"), Course.TYPE_LAB);
-                    lab.wednesday = this.getSlotId(this.getStringValue(labObject, "wednesday"), Course.TYPE_LAB);
-                    lab.thursday = this.getSlotId(this.getStringValue(labObject, "thursday"), Course.TYPE_LAB);
-                    lab.friday = this.getSlotId(this.getStringValue(labObject, "friday"), Course.TYPE_LAB);
-                    lab.saturday = this.getSlotId(this.getStringValue(labObject, "saturday"), Course.TYPE_LAB);
+                            lab.id = i * 2 + 1;
+                            lab.startTime = this.getStringValue(labObject, "start_time");
+                            lab.endTime = this.getStringValue(labObject, "end_time");
+                            lab.sunday = this.getSlotId(this.getStringValue(labObject, "sunday"), Course.TYPE_LAB);
+                            lab.monday = this.getSlotId(this.getStringValue(labObject, "monday"), Course.TYPE_LAB);
+                            lab.tuesday = this.getSlotId(this.getStringValue(labObject, "tuesday"), Course.TYPE_LAB);
+                            lab.wednesday = this.getSlotId(this.getStringValue(labObject, "wednesday"),
+                                    Course.TYPE_LAB);
+                            lab.thursday = this.getSlotId(this.getStringValue(labObject, "thursday"), Course.TYPE_LAB);
+                            lab.friday = this.getSlotId(this.getStringValue(labObject, "friday"), Course.TYPE_LAB);
+                            lab.saturday = this.getSlotId(this.getStringValue(labObject, "saturday"), Course.TYPE_LAB);
 
-                    theory.id = i * 2 + 2;
-                    theory.startTime = this.getStringValue(theoryObject, "start_time");
-                    theory.endTime = this.getStringValue(theoryObject, "end_time");
-                    theory.sunday = this.getSlotId(this.getStringValue(theoryObject, "sunday"), Course.TYPE_THEORY);
-                    theory.monday = this.getSlotId(this.getStringValue(theoryObject, "monday"), Course.TYPE_THEORY);
-                    theory.tuesday = this.getSlotId(this.getStringValue(theoryObject, "tuesday"), Course.TYPE_THEORY);
-                    theory.wednesday = this.getSlotId(this.getStringValue(theoryObject, "wednesday"), Course.TYPE_THEORY);
-                    theory.thursday = this.getSlotId(this.getStringValue(theoryObject, "thursday"), Course.TYPE_THEORY);
-                    theory.friday = this.getSlotId(this.getStringValue(theoryObject, "friday"), Course.TYPE_THEORY);
-                    theory.saturday = this.getSlotId(this.getStringValue(theoryObject, "saturday"), Course.TYPE_THEORY);
+                            theory.id = i * 2 + 2;
+                            theory.startTime = this.getStringValue(theoryObject, "start_time");
+                            theory.endTime = this.getStringValue(theoryObject, "end_time");
+                            theory.sunday = this.getSlotId(this.getStringValue(theoryObject, "sunday"),
+                                    Course.TYPE_THEORY);
+                            theory.monday = this.getSlotId(this.getStringValue(theoryObject, "monday"),
+                                    Course.TYPE_THEORY);
+                            theory.tuesday = this.getSlotId(this.getStringValue(theoryObject, "tuesday"),
+                                    Course.TYPE_THEORY);
+                            theory.wednesday = this.getSlotId(this.getStringValue(theoryObject, "wednesday"),
+                                    Course.TYPE_THEORY);
+                            theory.thursday = this.getSlotId(this.getStringValue(theoryObject, "thursday"),
+                                    Course.TYPE_THEORY);
+                            theory.friday = this.getSlotId(this.getStringValue(theoryObject, "friday"),
+                                    Course.TYPE_THEORY);
+                            theory.saturday = this.getSlotId(this.getStringValue(theoryObject, "saturday"),
+                                    Course.TYPE_THEORY);
 
-                    /*
-                        Formatting time in 24-hour in-case it's given in 12-hour format because VIT
-                        thought it would be a good idea to use both 12-hour and 24-hour formats
+                            /*
+                             * Formatting time in 24-hour in-case it's given in 12-hour format because VIT
+                             * thought it would be a good idea to use both 12-hour and 24-hour formats
+                             * 
+                             * This conversion works under the assumption that there will not be any classes
+                             * after 20:00 and before 08:00. If the time is less than 08:00, the time is in
+                             * a 12-hour format and has to be converted
+                             */
+                            String[] timings = { lab.startTime, lab.endTime, theory.startTime, theory.endTime };
+                            for (int j = 0; j < timings.length; ++j) {
+                                try {
+                                    Date time = hour24.parse(timings[j]);
+                                    Date hourStart = hour24.parse("08:00");
 
-                        This conversion works under the assumption that there will not be any classes
-                        after 20:00 and before 08:00. If the time is less than 08:00, the time is in
-                        a 12-hour format and has to be converted
-                     */
-                    String[] timings = {lab.startTime, lab.endTime, theory.startTime, theory.endTime};
-                    for (int j = 0; j < timings.length; ++j) {
-                        try {
-                            Date time = hour24.parse(timings[j]);
-                            Date hourStart = hour24.parse("08:00");
-
-                            if (time != null && time.before(hourStart)) {
-                                time = hour12.parse(timings[j] + " PM");
-                                if (time != null) {
-                                    timings[j] = hour24.format(time);
+                                    if (time != null && time.before(hourStart)) {
+                                        time = hour12.parse(timings[j] + " PM");
+                                        if (time != null) {
+                                            timings[j] = hour24.format(time);
+                                        }
+                                    }
+                                } catch (Exception ignored) {
                                 }
                             }
-                        } catch (Exception ignored) {
+
+                            lab.startTime = timings[0];
+                            lab.endTime = timings[1];
+                            theory.startTime = timings[2];
+                            theory.endTime = timings[3];
+
+                            timetable.add(lab);
+                            timetable.add(theory);
+
+                            try {
+                                SettingsRepository.setTimetableNotifications(this.getApplicationContext(), lab);
+                                SettingsRepository.setTimetableNotifications(this.getApplicationContext(), theory);
+                            } catch (Exception ignored) {
+                            }
                         }
+
+                        TimetableDao timetableDao = appDatabase.timetableDao();
+
+                        Observable<Object> deleteAllObservable = Observable.fromCompletable(timetableDao.deleteAll());
+                        Observable<Object> insertTimetableObservable = Observable
+                                .fromCompletable(timetableDao.insert(timetable));
+
+                        Observable
+                                .concat(
+                                        deleteAllObservable,
+                                        insertTimetableObservable)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(502, e.getLocalizedMessage());
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadAttendance();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(501, e.getLocalizedMessage());
                     }
-
-                    lab.startTime = timings[0];
-                    lab.endTime = timings[1];
-                    theory.startTime = timings[2];
-                    theory.endTime = timings[3];
-
-                    timetable.add(lab);
-                    timetable.add(theory);
-
-                    try {
-                        SettingsRepository.setTimetableNotifications(this.getApplicationContext(), lab);
-                        SettingsRepository.setTimetableNotifications(this.getApplicationContext(), theory);
-                    } catch (Exception ignored) {
-                    }
-                }
-
-                TimetableDao timetableDao = appDatabase.timetableDao();
-
-                Observable<Object> deleteAllObservable = Observable.fromCompletable(timetableDao.deleteAll());
-                Observable<Object> insertTimetableObservable = Observable.fromCompletable(timetableDao.insert(timetable));
-
-                Observable
-                        .concat(
-                                deleteAllObservable,
-                                insertTimetableObservable
-                        )
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
-
-                            @Override
-                            public void onNext(@NonNull Object o) {
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(502, e.getLocalizedMessage());
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                downloadAttendance();
-                            }
-                        });
-            } catch (Exception e) {
-                error(501, e.getLocalizedMessage());
-            }
-        });
+                });
     }
 
     /**
@@ -1231,23 +1291,24 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_attendance);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "attendance": [
-         *          {
-         *              "slot": "L45",
-         *              "course_type": "Lab Only"
-         *              "attended": 81,
-         *              "total": 83,
-         *              "percentage": 98
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "attendance": [
+         * {
+         * "slot": "L45",
+         * "course_type": "Lab Only"
+         * "attended": 81,
+         * "total": 83,
+         * "percentage": 98
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&semesterSubId=' + '" + semesterID + "' + '&authorizedID=' + $('#authorizedIDX').val();" +
+                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&semesterSubId=' + '" + semesterID
+                + "' + '&authorizedID=' + $('#authorizedIDX').val();" +
                 "var response = {" +
                 "    attendance: []" +
                 "};" +
@@ -1276,7 +1337,8 @@ public class VTOPService extends Service {
                 "            }" +
                 "        }" +
                 "        var cells = table.getElementsByTagName('td');" +
-                "        while (courseTypeIndex < cells.length && slotIndex < cells.length  && attendedIndex < cells.length && totalIndex < cells.length && percentageIndex < cells.length) {" +
+                "        while (courseTypeIndex < cells.length && slotIndex < cells.length  && attendedIndex < cells.length && totalIndex < cells.length && percentageIndex < cells.length) {"
+                +
                 "            var attendanceObject = {};" +
                 "            attendanceObject.course_type = cells[courseTypeIndex].innerText.trim();" +
                 "            attendanceObject.slot = cells[slotIndex].innerText.trim().split('+')[0].trim();" +
@@ -1294,79 +1356,223 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray attendanceArray = response.getJSONArray("attendance");
-                List<Attendance> attendance = new ArrayList<>();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray attendanceArray = response.getJSONArray("attendance");
+                        List<Attendance> attendance = new ArrayList<>();
 
-                int attendedClasses = 0;
-                int totalClasses = 0;
+                        int attendedClasses = 0;
+                        int totalClasses = 0;
 
-                for (int i = 0; i < attendanceArray.length(); ++i) {
-                    JSONObject attendanceObject = attendanceArray.getJSONObject(i);
-                    Attendance attendanceItem = new Attendance();
+                        for (int i = 0; i < attendanceArray.length(); ++i) {
+                            JSONObject attendanceObject = attendanceArray.getJSONObject(i);
+                            Attendance attendanceItem = new Attendance();
 
-                    int courseType = Course.TYPE_THEORY;
+                            int courseType = Course.TYPE_THEORY;
 
-                    if (attendanceObject.getString("course_type").toLowerCase().contains("lab")) {
-                        courseType = Course.TYPE_LAB;
+                            if (attendanceObject.getString("course_type").toLowerCase().contains("lab")) {
+                                courseType = Course.TYPE_LAB;
+                            }
+
+                            attendanceItem.id = i + 1;
+                            attendanceItem.courseId = this.getCourseId(attendanceObject.getString("slot"), courseType);
+                            attendanceItem.attended = this.getIntegerValue(attendanceObject, "attended");
+                            attendanceItem.total = this.getIntegerValue(attendanceObject, "total");
+
+                            if (attendanceItem.attended != null && attendanceItem.total != null
+                                    && attendanceItem.total != 0) {
+                                attendanceItem.percentage = (int) Math
+                                        .ceil((attendanceItem.attended * 100.0) / attendanceItem.total);
+                                attendedClasses += attendanceItem.attended;
+                                totalClasses += attendanceItem.total;
+                            }
+
+                            attendance.add(attendanceItem);
+                        }
+
+                        int overallAttendance = 0;
+
+                        if (totalClasses != 0) {
+                            overallAttendance = (attendedClasses * 100) / totalClasses;
+                        }
+
+                        sharedPreferences.edit().putInt("overallAttendance", overallAttendance).apply();
+
+                        AttendanceDao attendanceDao = appDatabase.attendanceDao();
+                        Observable<Object> deleteObservable = Observable.fromCompletable(attendanceDao.delete());
+                        Observable<Object> insertObservable = Observable
+                                .fromCompletable(attendanceDao.insert(attendance));
+
+                        Observable
+                                .concat(deleteObservable, insertObservable)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+
+                                    }
+
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(602, e.getLocalizedMessage());
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadMarks();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(601, e.getLocalizedMessage());
                     }
+                });
+    }
 
-                    attendanceItem.id = i + 1;
-                    attendanceItem.courseId = this.getCourseId(attendanceObject.getString("slot"), courseType);
-                    attendanceItem.attended = this.getIntegerValue(attendanceObject, "attended");
-                    attendanceItem.total = this.getIntegerValue(attendanceObject, "total");
+    /**
+     * Function to download the Attendance Details.
+     */
+    private void ViewAttendanceDetails() {
+        updateProgress(R.string.downloading_attendance_details);
 
-                    if (attendanceItem.attended != null && attendanceItem.total != null && attendanceItem.total != 0) {
-                        attendanceItem.percentage = (int) Math.ceil((attendanceItem.attended * 100.0) / attendanceItem.total);
-                        attendedClasses += attendanceItem.attended;
-                        totalClasses += attendanceItem.total;
-                    }
+        /*
+         * JSON response format
+         *
+         * {
+         * "attendance_Details": [
+         * "
+         * {
+         * "sl_no": 1,
+         * "attendance_date": "11-Sep-2024",
+         * "attendance_slot": "C1",
+         * "day_and_timing": "WED,08:00-08:50",
+         * "attendance_status": "Present"
+         * }
+         * ]
+         * 
+         * }
+         */
 
-                    attendance.add(attendanceItem);
-                }
+        List<String> classIds = courses.stream()
+                .map(course -> course.classId)
+                .collect(Collectors.toList());
 
-                int overallAttendance = 0;
+        // Initialize the list to collect all attendance details
+        List<AttendanceDetails> attendanceList = new ArrayList<>();
 
-                if (totalClasses != 0) {
-                    overallAttendance = (attendedClasses * 100) / totalClasses;
-                }
+        // Creating a function to handle the processing for each classId
+        classIds.forEach(classId -> {
+            webView.evaluateJavascript("(function() {" +
+                    "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&classId=' + '" + classId
+                    + "' + '&authorizedID=' + $('#authorizedID').val();" +
+                    "var response = { attendance_Details: [] };" +
+                    "$.ajax({" +
+                    "    type: 'POST'," +
+                    "    url: 'processViewAttendanceDetail'," +
+                    "    data: data," +
+                    "    async: false," +
+                    "    success: function(res) {" +
+                    "        var doc = new DOMParser().parseFromString(res, 'text/html');" +
+                    "        var table = doc.querySelector('table');" +
+                    "        var rows = table.querySelectorAll('tbody tr');" +
+                    "        var attendanceArray = [];" +
+                    "        rows.forEach(function(row, index) {" +
+                    "            var cells = row.querySelectorAll('td');" +
+                    "            if (cells.length > 0) {" +
+                    "                var attendanceObject = {};" +
+                    "                attendanceObject.sl_no = parseInt(cells[0].innerText.trim());" +
+                    "                attendanceObject.attendance_date = cells[1].innerText.trim();" +
+                    "                attendanceObject.attendance_slot = cells[2].innerText.trim();" +
+                    "                attendanceObject.day_and_timing = cells[3].innerText.trim();" +
+                    "                attendanceObject.attendance_status = cells[4].innerText.trim();" +
+                    "                // Ensure consistent status formatting" +
+                    "                attendanceObject.attendance_status = attendanceObject.attendance_status.includes('Absent') ? 'Absent' : 'Present';"
+                    +
+                    "                attendanceObject.course_code = '" + classId + "';" + // Add course_code to each
+                                                                                          // record
+                    "                attendanceObject.class_id = '" + classId + "';" + // Map courseId as class_id
+                    "                attendanceArray.push(attendanceObject);" +
+                    "            }" +
+                    "        });" +
+                    "        response.attendance_Details = attendanceArray;" +
+                    "    }" +
+                    "});" +
+                    "return JSON.stringify(response);" +
+                    "})();", responseString -> {
+                        try {
+                            JSONObject response = new JSONObject(responseString);
+                            JSONArray attendanceArray = response.getJSONArray("attendance_Details");
 
-                sharedPreferences.edit().putInt("overallAttendance", overallAttendance).apply();
+                            for (int i = 0; i < attendanceArray.length(); ++i) {
+                                JSONObject attendanceObject = attendanceArray.getJSONObject(i);
+                                AttendanceDetails attendanceItem = new AttendanceDetails();
 
-                AttendanceDao attendanceDao = appDatabase.attendanceDao();
-                Observable<Object> deleteObservable = Observable.fromCompletable(attendanceDao.delete());
-                Observable<Object> insertObservable = Observable.fromCompletable(attendanceDao.insert(attendance));
+                                attendanceItem.id = attendanceObject.getInt("sl_no");
+                                attendanceItem.courseCode = attendanceObject.getString("course_code"); // Include
+                                                                                                       // courseCode
+                                attendanceItem.courseId = attendanceObject.getInt("class_id"); // Use class_id for
+                                                                                               // courseId
+                                attendanceItem.attendanceDate = attendanceObject.getString("attendance_date");
+                                attendanceItem.attendanceSlot = attendanceObject.getString("attendance_slot");
+                                attendanceItem.dayAndTiming = attendanceObject.getString("day_and_timing");
+                                attendanceItem.attendanceStatus = attendanceObject.getString("attendance_status");
 
-                Observable
-                        .concat(deleteObservable, insertObservable)
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-
+                                attendanceList.add(attendanceItem);
                             }
 
-                            @Override
-                            public void onNext(@NonNull Object o) {
+                            // Process the attendance list as needed
+                            // For example, saving to database or updating UI
+                            saveAttendanceToDatabase(attendanceList);
 
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(602, e.getLocalizedMessage());
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                downloadMarks();
-                            }
-                        });
-            } catch (Exception e) {
-                error(601, e.getLocalizedMessage());
-            }
+                        } catch (Exception e) {
+                            error(601, e.getLocalizedMessage());
+                        }
+                    });
         });
+
+        // Assuming you have a reference to your AppDatabase
+        AttendanceDetailsDao attendanceDetailsDao = appDatabase.attendanceDetailsDao();
+
+        // Create the Observable for deleting existing records
+        Observable<Object> deleteObservable = Observable.fromCompletable(attendanceDetailsDao.deleteAll());
+
+        // Create the Observable for inserting new records
+        Observable<Object> insertObservable = Observable.fromCompletable(attendanceDetailsDao.insert(attendanceList));
+
+        // Combine the observables to ensure deletion happens before insertion
+        Observable
+                .concat(deleteObservable, insertObservable)
+                .subscribeOn(Schedulers.io()) // Use io() for database operations
+                .observeOn(AndroidSchedulers.mainThread()) // Observe on main thread for UI updates
+                .subscribe(new Observer<Object>() {
+                    @Override
+                    public void onSubscribe(@NonNull Disposable d) {
+                        // Optional: Handle subscription
+                    }
+
+                    @Override
+                    public void onNext(@NonNull Object o) {
+                        // Optional: Handle next emissions
+                    }
+
+                    @Override
+                    public void onError(@NonNull Throwable e) {
+                        // Handle error
+                        error(602, e.getLocalizedMessage());
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        // Handle completion
+                        downloadMarks(); // Call any subsequent methods or UI updates
+                    }
+                });
+
     }
 
     /**
@@ -1376,27 +1582,28 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_marks);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "marks": [
-         *          {
-         *              "slot": "A1",
-         *              "course_type": "Theory Only",
-         *              "title": "CAT 1",
-         *              "score": 26,
-         *              "max_score": 30,
-         *              "weightage": 13,
-         *              "max_weightage": 15,
-         *              "average": null
-         *              "status": "Present"
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "marks": [
+         * {
+         * "slot": "A1",
+         * "course_type": "Theory Only",
+         * "title": "CAT 1",
+         * "score": 26,
+         * "max_score": 30,
+         * "weightage": 13,
+         * "max_weightage": 15,
+         * "average": null
+         * "status": "Present"
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'semesterSubId=' + '" + semesterID + "' + '&authorizedID=' + $('#authorizedIDX').val()  + '&_csrf=' + $('input[name=\"_csrf\"]').val();" +
+                "var data = 'semesterSubId=' + '" + semesterID
+                + "' + '&authorizedID=' + $('#authorizedIDX').val()  + '&_csrf=' + $('input[name=\"_csrf\"]').val();" +
                 "var response = {" +
                 "    marks: []" +
                 "};" +
@@ -1423,13 +1630,17 @@ public class VTOPService extends Service {
                 "            }" +
                 "        }" +
                 "        for (var i = 1; i < rows.length; ++i) {" +
-                "            var rawCourseType = rows[i].getElementsByTagName('td')[courseTypeIndex].innerText.trim().toLowerCase();" +
-                "            var courseType = (rawCourseType.includes('lab')) ? 'lab' : ((rawCourseType.includes('project')) ? 'project' : 'theory');" +
-                "            var slot = rows[i++].getElementsByTagName('td')[slotIndex].innerText.split('+')[0].trim();" +
+                "            var rawCourseType = rows[i].getElementsByTagName('td')[courseTypeIndex].innerText.trim().toLowerCase();"
+                +
+                "            var courseType = (rawCourseType.includes('lab')) ? 'lab' : ((rawCourseType.includes('project')) ? 'project' : 'theory');"
+                +
+                "            var slot = rows[i++].getElementsByTagName('td')[slotIndex].innerText.split('+')[0].trim();"
+                +
                 "            var innerTable = rows[i].getElementsByTagName('table')[0];" +
                 "            var innerRows = innerTable.getElementsByTagName('tr');" +
                 "            var innerHeadings = innerRows[0].getElementsByTagName('td');" +
-                "            var titleIndex, scoreIndex, maxScoreIndex, weightageIndex, maxWeightageIndex, averageIndex, statusIndex;" +
+                "            var titleIndex, scoreIndex, maxScoreIndex, weightageIndex, maxWeightageIndex, averageIndex, statusIndex;"
+                +
                 "            for (var j = 0; j < innerHeadings.length; ++j) {" +
                 "                var innerHeading = innerHeadings[j].innerText.toLowerCase();" +
                 "                if (innerHeading.includes('title')) {" +
@@ -1449,7 +1660,8 @@ public class VTOPService extends Service {
                 "                }" +
                 "            }" +
                 "            var innerCells = innerTable.getElementsByTagName('td');" +
-                "            while(titleIndex < innerCells.length && scoreIndex < innerCells.length && maxScoreIndex < innerCells.length && weightageIndex < innerCells.length && maxWeightageIndex < innerCells.length && averageIndex < innerCells.length && statusIndex < innerCells.length) {" +
+                "            while(titleIndex < innerCells.length && scoreIndex < innerCells.length && maxScoreIndex < innerCells.length && weightageIndex < innerCells.length && maxWeightageIndex < innerCells.length && averageIndex < innerCells.length && statusIndex < innerCells.length) {"
+                +
                 "                var mark = {};" +
                 "                mark.slot = slot;" +
                 "                mark.course_type = courseType;" +
@@ -1475,111 +1687,117 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray marksArray = response.getJSONArray("marks");
-                Map<Integer, Mark> marks = new HashMap<>();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray marksArray = response.getJSONArray("marks");
+                        Map<Integer, Mark> marks = new HashMap<>();
 
-                this.cumulativeMarks = new HashMap<>();
+                        this.cumulativeMarks = new HashMap<>();
 
-                for (int i = 0, j = 0; i < marksArray.length(); ++i) {
-                    JSONObject markObject = marksArray.getJSONObject(i);
-                    Mark mark = new Mark();
+                        for (int i = 0, j = 0; i < marksArray.length(); ++i) {
+                            JSONObject markObject = marksArray.getJSONObject(i);
+                            Mark mark = new Mark();
 
-                    int courseType = Course.TYPE_THEORY;
+                            int courseType = Course.TYPE_THEORY;
 
-                    if (markObject.getString("course_type").equals("lab")) {
-                        courseType = Course.TYPE_LAB;
-                    } else if (markObject.getString("course_type").equals("project")) {
-                        courseType = Course.TYPE_PROJECT;
-                    }
-
-                    mark.id = i + 1;
-                    mark.courseId = this.getCourseId(markObject.getString("slot"), courseType);
-                    mark.title = this.getStringValue(markObject, "title");
-                    mark.score = this.getDoubleValue(markObject, "score");
-                    mark.maxScore = this.getDoubleValue(markObject, "max_score");
-                    mark.weightage = this.getDoubleValue(markObject, "weightage");
-                    mark.maxWeightage = this.getDoubleValue(markObject, "max_weightage");
-                    mark.average = this.getDoubleValue(markObject, "average");
-                    mark.status = this.getStringValue(markObject, "status");
-
-                    String courseCode = this.getCourseCode(mark.courseId, courseType);
-                    Integer courseCredits = this.getCourseCredits(mark.courseId, courseType);
-
-                    if (!this.cumulativeMarks.containsKey(courseCode)) {
-                        this.cumulativeMarks.put(courseCode, new CumulativeMark(++j));
-                    }
-
-                    Objects.requireNonNull(this.cumulativeMarks.get(courseCode)).courseCode = courseCode;
-                    Objects.requireNonNull(this.cumulativeMarks.get(courseCode)).addWeightage(mark.weightage, mark.maxWeightage, courseType, courseCredits);
-
-                    // Generating a unique hash signature to keep a track of read marks
-                    mark.signature = (courseCode + markObject.getString("course_type") + mark.title + mark.score).hashCode();
-                    marks.put(mark.signature, mark);
-                }
-
-                for (Map.Entry<String, CumulativeMark> cumulativeMark : this.cumulativeMarks.entrySet()) {
-                    Double theoryTotal = cumulativeMark.getValue().theoryTotal;
-                    Double labTotal = cumulativeMark.getValue().labTotal;
-                    Double projectTotal = cumulativeMark.getValue().projectTotal;
-
-                    Double theoryMax = cumulativeMark.getValue().theoryMax;
-                    Double labMax = cumulativeMark.getValue().labMax;
-                    Double projectMax = cumulativeMark.getValue().projectMax;
-
-                    if (theoryTotal == null) {
-                        theoryTotal = (double) 0;
-                        theoryMax = (double) 0;
-                    }
-
-                    if (labTotal == null) {
-                        labTotal = (double) 0;
-                        labMax = (double) 0;
-                    }
-
-                    if (projectTotal == null) {
-                        projectTotal = (double) 0;
-                        projectMax = (double) 0;
-                    }
-
-                    int theoryCredits = cumulativeMark.getValue().theoryCredits;
-                    int labCredits = cumulativeMark.getValue().labCredits;
-                    int projectCredits = cumulativeMark.getValue().projectCredits;
-
-                    double grandTotal = (theoryTotal * theoryCredits + labTotal * labCredits + projectTotal * projectCredits);
-                    double grandMax = (theoryMax * theoryCredits + labMax * labCredits + projectMax * projectCredits);
-
-                    grandTotal /= theoryCredits + labCredits + projectCredits;
-                    grandMax /= theoryCredits + labCredits + projectCredits;
-
-                    Objects.requireNonNull(this.cumulativeMarks.get(cumulativeMark.getKey())).grandTotal = grandTotal;
-                    Objects.requireNonNull(this.cumulativeMarks.get(cumulativeMark.getKey())).grandMax = grandMax;
-                }
-
-                appDatabase.marksDao()
-                        .insertMarks(marks)
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new CompletableObserver() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
+                            if (markObject.getString("course_type").equals("lab")) {
+                                courseType = Course.TYPE_LAB;
+                            } else if (markObject.getString("course_type").equals("project")) {
+                                courseType = Course.TYPE_PROJECT;
                             }
 
-                            @Override
-                            public void onComplete() {
-                                downloadGrades();
+                            mark.id = i + 1;
+                            mark.courseId = this.getCourseId(markObject.getString("slot"), courseType);
+                            mark.title = this.getStringValue(markObject, "title");
+                            mark.score = this.getDoubleValue(markObject, "score");
+                            mark.maxScore = this.getDoubleValue(markObject, "max_score");
+                            mark.weightage = this.getDoubleValue(markObject, "weightage");
+                            mark.maxWeightage = this.getDoubleValue(markObject, "max_weightage");
+                            mark.average = this.getDoubleValue(markObject, "average");
+                            mark.status = this.getStringValue(markObject, "status");
+
+                            String courseCode = this.getCourseCode(mark.courseId, courseType);
+                            Integer courseCredits = this.getCourseCredits(mark.courseId, courseType);
+
+                            if (!this.cumulativeMarks.containsKey(courseCode)) {
+                                this.cumulativeMarks.put(courseCode, new CumulativeMark(++j));
                             }
 
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(702, e.getLocalizedMessage());
+                            Objects.requireNonNull(this.cumulativeMarks.get(courseCode)).courseCode = courseCode;
+                            Objects.requireNonNull(this.cumulativeMarks.get(courseCode)).addWeightage(mark.weightage,
+                                    mark.maxWeightage, courseType, courseCredits);
+
+                            // Generating a unique hash signature to keep a track of read marks
+                            mark.signature = (courseCode + markObject.getString("course_type") + mark.title
+                                    + mark.score).hashCode();
+                            marks.put(mark.signature, mark);
+                        }
+
+                        for (Map.Entry<String, CumulativeMark> cumulativeMark : this.cumulativeMarks.entrySet()) {
+                            Double theoryTotal = cumulativeMark.getValue().theoryTotal;
+                            Double labTotal = cumulativeMark.getValue().labTotal;
+                            Double projectTotal = cumulativeMark.getValue().projectTotal;
+
+                            Double theoryMax = cumulativeMark.getValue().theoryMax;
+                            Double labMax = cumulativeMark.getValue().labMax;
+                            Double projectMax = cumulativeMark.getValue().projectMax;
+
+                            if (theoryTotal == null) {
+                                theoryTotal = (double) 0;
+                                theoryMax = (double) 0;
                             }
-                        });
-            } catch (Exception e) {
-                error(701, e.getLocalizedMessage());
-            }
-        });
+
+                            if (labTotal == null) {
+                                labTotal = (double) 0;
+                                labMax = (double) 0;
+                            }
+
+                            if (projectTotal == null) {
+                                projectTotal = (double) 0;
+                                projectMax = (double) 0;
+                            }
+
+                            int theoryCredits = cumulativeMark.getValue().theoryCredits;
+                            int labCredits = cumulativeMark.getValue().labCredits;
+                            int projectCredits = cumulativeMark.getValue().projectCredits;
+
+                            double grandTotal = (theoryTotal * theoryCredits + labTotal * labCredits
+                                    + projectTotal * projectCredits);
+                            double grandMax = (theoryMax * theoryCredits + labMax * labCredits
+                                    + projectMax * projectCredits);
+
+                            grandTotal /= theoryCredits + labCredits + projectCredits;
+                            grandMax /= theoryCredits + labCredits + projectCredits;
+
+                            Objects.requireNonNull(
+                                    this.cumulativeMarks.get(cumulativeMark.getKey())).grandTotal = grandTotal;
+                            Objects.requireNonNull(
+                                    this.cumulativeMarks.get(cumulativeMark.getKey())).grandMax = grandMax;
+                        }
+
+                        appDatabase.marksDao()
+                                .insertMarks(marks)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new CompletableObserver() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadGrades();
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(702, e.getLocalizedMessage());
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(701, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -1589,21 +1807,22 @@ public class VTOPService extends Service {
         updateProgress(null);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "grades": [
-         *          {
-         *              "course_code": "CSE1001",
-         *              "grade": "S"
-         *          },
-         *          ...
-         *      ],
-         *      "gpa": 8.58
-         *  }
+         * {
+         * "grades": [
+         * {
+         * "course_code": "CSE1001",
+         * "grade": "S"
+         * },
+         * ...
+         * ],
+         * "gpa": 8.58
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'semesterSubId=' + '" + semesterID + "' + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val();" +
+                "var data = 'semesterSubId=' + '" + semesterID
+                + "' + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val();" +
                 "var response = {" +
                 "    grades: []," +
                 "    gpa: null" +
@@ -1652,58 +1871,60 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray gradesArray = response.getJSONArray("grades");
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray gradesArray = response.getJSONArray("grades");
 
-                for (int i = 0; i < gradesArray.length(); ++i) {
-                    JSONObject gradesObject = gradesArray.getJSONObject(i);
+                        for (int i = 0; i < gradesArray.length(); ++i) {
+                            JSONObject gradesObject = gradesArray.getJSONObject(i);
 
-                    String courseCode = this.getStringValue(gradesObject, "course_code");
+                            String courseCode = this.getStringValue(gradesObject, "course_code");
 
-                    if (this.cumulativeMarks.containsKey(courseCode)) {
-                        Objects.requireNonNull(this.cumulativeMarks.get(courseCode)).grade = gradesObject.getString("grade");
+                            if (this.cumulativeMarks.containsKey(courseCode)) {
+                                Objects.requireNonNull(this.cumulativeMarks.get(courseCode)).grade = gradesObject
+                                        .getString("grade");
+                            }
+                        }
+
+                        this.sharedPreferences.edit().putString("gpa", response.getString("gpa")).apply();
+
+                        List<CumulativeMark> cumulativeMarks = new ArrayList<>(this.cumulativeMarks.values());
+                        MarksDao marksDao = this.appDatabase.marksDao();
+
+                        Observable<Object> deleteAllObservable = Observable
+                                .fromCompletable(marksDao.deleteCumulativeMarks());
+                        Observable<Object> insertCumulativeMarks = Observable
+                                .fromCompletable(marksDao.insertCumulativeMarks(cumulativeMarks));
+
+                        Observable
+                                .concat(
+                                        deleteAllObservable,
+                                        insertCumulativeMarks)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(802, e.getLocalizedMessage());
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadExamSchedule();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(801, e.getLocalizedMessage());
                     }
-                }
-
-                this.sharedPreferences.edit().putString("gpa", response.getString("gpa")).apply();
-
-                List<CumulativeMark> cumulativeMarks = new ArrayList<>(this.cumulativeMarks.values());
-                MarksDao marksDao = this.appDatabase.marksDao();
-
-                Observable<Object> deleteAllObservable = Observable.fromCompletable(marksDao.deleteCumulativeMarks());
-                Observable<Object> insertCumulativeMarks = Observable.fromCompletable(marksDao.insertCumulativeMarks(cumulativeMarks));
-
-                Observable
-                        .concat(
-                                deleteAllObservable,
-                                insertCumulativeMarks
-                        )
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
-
-                            @Override
-                            public void onNext(@NonNull Object o) {
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(802, e.getLocalizedMessage());
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                downloadExamSchedule();
-                            }
-                        });
-            } catch (Exception e) {
-                error(801, e.getLocalizedMessage());
-            }
-        });
+                });
     }
 
     /**
@@ -1713,26 +1934,27 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_exam_schedule);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "FAT": [
-         *          {
-         *              "slot": "A1",
-         *              "date": "01-JAN-2020",
-         *              "start_time": "9:30 AM",
-         *              "end_time": "12:30 PM",
-         *              "venue": "DB-101",
-         *              "seat_location": "R1C1",
-         *              "seat_number": 1
-         *          },
-         *          ...
-         *      ],
-         *      ...
-         *  }
+         * {
+         * "FAT": [
+         * {
+         * "slot": "A1",
+         * "date": "01-JAN-2020",
+         * "start_time": "9:30 AM",
+         * "end_time": "12:30 PM",
+         * "venue": "DB-101",
+         * "seat_location": "R1C1",
+         * "seat_number": 1
+         * },
+         * ...
+         * ],
+         * ...
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'semesterSubId=' + '" + semesterID + "' + '&authorizedID=' + $('#authorizedIDX').val()  + '&_csrf=' + $('input[name=\"_csrf\"]').val();" +
+                "var data = 'semesterSubId=' + '" + semesterID
+                + "' + '&authorizedID=' + $('#authorizedIDX').val()  + '&_csrf=' + $('input[name=\"_csrf\"]').val();" +
                 "var response = {};" +
                 "$.ajax({" +
                 "    type: 'POST'," +
@@ -1803,91 +2025,98 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                Iterator<String> keys = response.keys();
-                List<Exam> exams = new ArrayList<>();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        Iterator<String> keys = response.keys();
+                        List<Exam> exams = new ArrayList<>();
 
-                SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy", Locale.ENGLISH);
-                SimpleDateFormat dateTimeFormat = new SimpleDateFormat("dd-MMM-yyyy hh:mm a", Locale.ENGLISH);
+                        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy", Locale.ENGLISH);
+                        SimpleDateFormat dateTimeFormat = new SimpleDateFormat("dd-MMM-yyyy hh:mm a", Locale.ENGLISH);
 
-                int index = 1;
+                        int index = 1;
 
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    JSONArray examsArray = response.getJSONArray(key);
+                        while (keys.hasNext()) {
+                            String key = keys.next();
+                            JSONArray examsArray = response.getJSONArray(key);
 
-                    for (int i = 0; i < examsArray.length(); ++i) {
-                        JSONObject examObject = examsArray.getJSONObject(i);
-                        Exam exam = new Exam();
-                        Pattern pattern = Pattern.compile("\\d");
-                        Matcher matcher = pattern.matcher(key);
+                            for (int i = 0; i < examsArray.length(); ++i) {
+                                JSONObject examObject = examsArray.getJSONObject(i);
+                                Exam exam = new Exam();
+                                Pattern pattern = Pattern.compile("\\d");
+                                Matcher matcher = pattern.matcher(key);
 
-                        exam.id = ++index;
-                        exam.courseId = getCourseId(examObject.getString("slot"), Course.TYPE_THEORY);
-                        exam.title = key;
+                                exam.id = ++index;
+                                exam.courseId = getCourseId(examObject.getString("slot"), Course.TYPE_THEORY);
+                                exam.title = key;
 
-                        if (matcher.find()) {
-                            exam.title = new StringBuilder(key).insert(matcher.start(), " ").toString().trim().replaceAll(" +", " ");
+                                if (matcher.find()) {
+                                    exam.title = new StringBuilder(key).insert(matcher.start(), " ").toString().trim()
+                                            .replaceAll(" +", " ");
+                                }
+
+                                if (!examObject.isNull("date")) {
+                                    if (!examObject.isNull("start_time")) {
+                                        exam.startTime = Objects
+                                                .requireNonNull(dateTimeFormat.parse(examObject.getString("date") + " "
+                                                        + examObject.getString("start_time")))
+                                                .getTime();
+                                    } else {
+                                        exam.startTime = Objects
+                                                .requireNonNull(dateFormat.parse(examObject.getString("date")))
+                                                .getTime();
+                                    }
+
+                                    if (!examObject.isNull("end_time")) {
+                                        exam.endTime = Objects.requireNonNull(dateTimeFormat.parse(
+                                                examObject.getString("date") + " " + examObject.getString("end_time")))
+                                                .getTime();
+                                    }
+                                }
+
+                                exam.venue = getStringValue(examObject, "venue");
+                                exam.seatLocation = getStringValue(examObject, "seat_location");
+                                exam.seatNumber = getIntegerValue(examObject, "seat_number");
+
+                                exams.add(exam);
+                            }
                         }
 
-                        if (!examObject.isNull("date")) {
-                            if (!examObject.isNull("start_time")) {
-                                exam.startTime = Objects.requireNonNull(dateTimeFormat.parse(examObject.getString("date") + " " + examObject.getString("start_time"))).getTime();
-                            } else {
-                                exam.startTime = Objects.requireNonNull(dateFormat.parse(examObject.getString("date"))).getTime();
-                            }
+                        SettingsRepository.setExamNotifications(this.getApplicationContext(), exams);
 
-                            if (!examObject.isNull("end_time")) {
-                                exam.endTime = Objects.requireNonNull(dateTimeFormat.parse(examObject.getString("date") + " " + examObject.getString("end_time"))).getTime();
-                            }
-                        }
+                        ExamsDao examsDao = appDatabase.examsDao();
 
-                        exam.venue = getStringValue(examObject, "venue");
-                        exam.seatLocation = getStringValue(examObject, "seat_location");
-                        exam.seatNumber = getIntegerValue(examObject, "seat_number");
+                        Observable<Object> deleteAllObservable = Observable.fromCompletable(examsDao.deleteAll());
+                        Observable<Object> insertExamsObservable = Observable.fromCompletable(examsDao.insert(exams));
 
-                        exams.add(exam);
+                        Observable
+                                .concat(
+                                        deleteAllObservable,
+                                        insertExamsObservable)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(902, e.getLocalizedMessage());
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadProctor();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(901, e.getLocalizedMessage());
                     }
-                }
-
-                SettingsRepository.setExamNotifications(this.getApplicationContext(), exams);
-
-                ExamsDao examsDao = appDatabase.examsDao();
-
-                Observable<Object> deleteAllObservable = Observable.fromCompletable(examsDao.deleteAll());
-                Observable<Object> insertExamsObservable = Observable.fromCompletable(examsDao.insert(exams));
-
-                Observable
-                        .concat(
-                                deleteAllObservable,
-                                insertExamsObservable
-                        )
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
-
-                            @Override
-                            public void onNext(@NonNull Object o) {
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(902, e.getLocalizedMessage());
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                downloadProctor();
-                            }
-                        });
-            } catch (Exception e) {
-                error(901, e.getLocalizedMessage());
-            }
-        });
+                });
     }
 
     /**
@@ -1896,20 +2125,21 @@ public class VTOPService extends Service {
     private void downloadProctor() {
         updateProgress(R.string.downloading_staff);
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "proctor" [
-         *          {
-         *              "key": "",
-         *              "value": ""
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "proctor" [
+         * {
+         * "key": "",
+         * "value": ""
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {" +
                 "    proctor: []" +
                 "};" +
@@ -1934,58 +2164,57 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray proctorArray = response.getJSONArray("proctor");
-                List<Staff> staff = new ArrayList<>();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray proctorArray = response.getJSONArray("proctor");
+                        List<Staff> staff = new ArrayList<>();
 
-                for (int i = 0; i < proctorArray.length(); ++i) {
-                    JSONObject proctorObject = proctorArray.getJSONObject(i);
-                    Staff staffItem = new Staff();
+                        for (int i = 0; i < proctorArray.length(); ++i) {
+                            JSONObject proctorObject = proctorArray.getJSONObject(i);
+                            Staff staffItem = new Staff();
 
-                    staffItem.id = i + 1;
-                    staffItem.type = "proctor";
-                    staffItem.key = this.getStringValue(proctorObject, "key");
-                    staffItem.value = this.getStringValue(proctorObject, "value");
+                            staffItem.id = i + 1;
+                            staffItem.type = "proctor";
+                            staffItem.key = this.getStringValue(proctorObject, "key");
+                            staffItem.value = this.getStringValue(proctorObject, "value");
 
-                    staff.add(staffItem);
-                }
+                            staff.add(staffItem);
+                        }
 
-                StaffDao staffDao = appDatabase.staffDao();
+                        StaffDao staffDao = appDatabase.staffDao();
 
-                Observable<Object> deleteAllObservable = Observable.fromCompletable(staffDao.deleteAll());
-                Observable<Object> insertStaffObservable = Observable.fromCompletable(staffDao.insert(staff));
+                        Observable<Object> deleteAllObservable = Observable.fromCompletable(staffDao.deleteAll());
+                        Observable<Object> insertStaffObservable = Observable.fromCompletable(staffDao.insert(staff));
 
-                Observable
-                        .concat(
-                                deleteAllObservable,
-                                insertStaffObservable
-                        )
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
+                        Observable
+                                .concat(
+                                        deleteAllObservable,
+                                        insertStaffObservable)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
 
-                            @Override
-                            public void onNext(@NonNull Object o) {
-                            }
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+                                    }
 
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(1002, e.getLocalizedMessage());
-                            }
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(1002, e.getLocalizedMessage());
+                                    }
 
-                            @Override
-                            public void onComplete() {
-                                downloadDeanHOD(staff.size());
-                            }
-                        });
-            } catch (Exception e) {
-                error(1001, e.getLocalizedMessage());
-            }
-        });
+                                    @Override
+                                    public void onComplete() {
+                                        downloadDeanHOD(staff.size());
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(1001, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -1994,27 +2223,28 @@ public class VTOPService extends Service {
     private void downloadDeanHOD(final int lastIndex) {
         updateProgress(null);
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "dean": [
-         *          {
-         *              "key": "",
-         *              "value": ""
-         *          },
-         *          ...
-         *      ],
-         *      "hod": [
-         *          {
-         *              "key": "",
-         *              "value": ""
-         *          },
-         *          ...
-         *      ],
-         *  }
+         * {
+         * "dean": [
+         * {
+         * "key": "",
+         * "value": ""
+         * },
+         * ...
+         * ],
+         * "hod": [
+         * {
+         * "key": "",
+         * "value": ""
+         * },
+         * ...
+         * ],
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {};" +
                 "$.ajax({" +
                 "    type: 'POST'," +
@@ -2043,61 +2273,61 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                Iterator<String> keys = response.keys();
-                List<Staff> staff = new ArrayList<>();
-                int index = lastIndex;
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        Iterator<String> keys = response.keys();
+                        List<Staff> staff = new ArrayList<>();
+                        int index = lastIndex;
 
-                while (keys.hasNext()) {
-                    String staffType = keys.next();
-                    JSONArray staffArray = response.getJSONArray(staffType);
+                        while (keys.hasNext()) {
+                            String staffType = keys.next();
+                            JSONArray staffArray = response.getJSONArray(staffType);
 
-                    if (staffType.contains("dean")) {
-                        staffType = "dean";
-                    } else if (staffType.contains("hod")) {
-                        staffType = "hod";
-                    } else {
-                        staffType = staffType.toLowerCase();
+                            if (staffType.contains("dean")) {
+                                staffType = "dean";
+                            } else if (staffType.contains("hod")) {
+                                staffType = "hod";
+                            } else {
+                                staffType = staffType.toLowerCase();
+                            }
+
+                            for (int i = 0; i < staffArray.length(); ++i) {
+                                JSONObject staffObject = staffArray.getJSONObject(i);
+                                Staff staffItem = new Staff();
+
+                                staffItem.id = ++index;
+                                staffItem.type = staffType;
+                                staffItem.key = this.getStringValue(staffObject, "key");
+                                staffItem.value = this.getStringValue(staffObject, "value");
+
+                                staff.add(staffItem);
+                            }
+                        }
+
+                        StaffDao staffDao = appDatabase.staffDao();
+                        staffDao
+                                .insert(staff)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new CompletableObserver() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        downloadSpotlight();
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(1004, e.getLocalizedMessage());
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(1003, e.getLocalizedMessage());
                     }
-
-                    for (int i = 0; i < staffArray.length(); ++i) {
-                        JSONObject staffObject = staffArray.getJSONObject(i);
-                        Staff staffItem = new Staff();
-
-                        staffItem.id = ++index;
-                        staffItem.type = staffType;
-                        staffItem.key = this.getStringValue(staffObject, "key");
-                        staffItem.value = this.getStringValue(staffObject, "value");
-
-                        staff.add(staffItem);
-                    }
-                }
-
-                StaffDao staffDao = appDatabase.staffDao();
-                staffDao
-                        .insert(staff)
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new CompletableObserver() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                downloadSpotlight();
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(1004, e.getLocalizedMessage());
-                            }
-                        });
-            } catch (Exception e) {
-                error(1003, e.getLocalizedMessage());
-            }
-        });
+                });
     }
 
     /**
@@ -2107,21 +2337,22 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_spotlight);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "spotlight": [
-         *          {
-         *              "announcement": "",
-         *              "category": "",
-         *              "link": null
-         *          },
-         *          ...
-         *      ]
-         *  }
+         * {
+         * "spotlight": [
+         * {
+         * "announcement": "",
+         * "category": "",
+         * "link": null
+         * },
+         * ...
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&x=';" +
+                "var data = '_csrf=' + $('input[name=\"_csrf\"]').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&x=';"
+                +
                 "var response = {" +
                 "    spotlight: []" +
                 "};" +
@@ -2143,11 +2374,13 @@ public class VTOPService extends Service {
                 "                continue;" +
                 "            }" +
                 "            const category = title.textContent;" +
-                "            var announcements = sheets[i].getElementsByClassName('offcanvas-body')[0].getElementsByTagName('li');" +
+                "            var announcements = sheets[i].getElementsByClassName('offcanvas-body')[0].getElementsByTagName('li');"
+                +
                 "            for(var j = 0; j < announcements.length; ++j) {" +
                 "                var spotlightItem = {};" +
                 "                spotlightItem.category = category;" +
-                "                spotlightItem.announcement = announcements[j].textContent.replace(/\\t/g,'').replace(/\\n/g,' ').trim();" +
+                "                spotlightItem.announcement = announcements[j].textContent.replace(/\\t/g,'').replace(/\\n/g,' ').trim();"
+                +
                 "                if (announcements[j].getElementsByTagName('a').length == 0) {" +
                 "                    spotlightItem.link = null;" +
                 "                } else {" +
@@ -2165,48 +2398,48 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray spotlightArray = response.getJSONArray("spotlight");
-                Map<Integer, Spotlight> spotlight = new HashMap<>();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray spotlightArray = response.getJSONArray("spotlight");
+                        Map<Integer, Spotlight> spotlight = new HashMap<>();
 
-                for (int i = 0; i < spotlightArray.length(); ++i) {
-                    JSONObject spotlightObject = spotlightArray.getJSONObject(i);
-                    Spotlight spotlightItem = new Spotlight();
+                        for (int i = 0; i < spotlightArray.length(); ++i) {
+                            JSONObject spotlightObject = spotlightArray.getJSONObject(i);
+                            Spotlight spotlightItem = new Spotlight();
 
-                    spotlightItem.id = i + 1;
-                    spotlightItem.announcement = this.getStringValue(spotlightObject, "announcement");
-                    spotlightItem.category = this.getStringValue(spotlightObject, "category");
-                    spotlightItem.link = this.getStringValue(spotlightObject, "link");
+                            spotlightItem.id = i + 1;
+                            spotlightItem.announcement = this.getStringValue(spotlightObject, "announcement");
+                            spotlightItem.category = this.getStringValue(spotlightObject, "category");
+                            spotlightItem.link = this.getStringValue(spotlightObject, "link");
 
-                    // Generating a unique hash signature to keep a track of read announcements
-                    spotlightItem.signature = (spotlightItem.announcement + spotlightItem.link).hashCode();
-                    spotlight.put(spotlightItem.signature, spotlightItem);
-                }
+                            // Generating a unique hash signature to keep a track of read announcements
+                            spotlightItem.signature = (spotlightItem.announcement + spotlightItem.link).hashCode();
+                            spotlight.put(spotlightItem.signature, spotlightItem);
+                        }
 
-                appDatabase.spotlightDao()
-                        .insert(spotlight)
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new CompletableObserver() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
+                        appDatabase.spotlightDao()
+                                .insert(spotlight)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new CompletableObserver() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
 
-                            @Override
-                            public void onComplete() {
-                                downloadReceipts();
-                            }
+                                    @Override
+                                    public void onComplete() {
+                                        downloadReceipts();
+                                    }
 
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(1102, e.getLocalizedMessage());
-                            }
-                        });
-            } catch (Exception e) {
-                error(1101, e.getLocalizedMessage());
-            }
-        });
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(1102, e.getLocalizedMessage());
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(1101, e.getLocalizedMessage());
+                    }
+                });
     }
 
     /**
@@ -2216,20 +2449,21 @@ public class VTOPService extends Service {
         updateProgress(R.string.downloading_receipts);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "receipts": [
-         *          {
-         *              "number": "10067",
-         *              "amount": 97500,
-         *              "date": "14-AUG-2020"
-         *          }
-         *      ]
-         *  }
+         * {
+         * "receipts": [
+         * {
+         * "number": "10067",
+         * "amount": 97500,
+         * "date": "14-AUG-2020"
+         * }
+         * ]
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {" +
                 "    receipts: []" +
                 "};" +
@@ -2253,7 +2487,8 @@ public class VTOPService extends Service {
                 "                amountIndex = i + headings.length;" +
                 "            }" +
                 "        }" +
-                "        while (receiptIndex < cells.length && amountIndex < cells.length && dateIndex < cells.length) {" +
+                "        while (receiptIndex < cells.length && amountIndex < cells.length && dateIndex < cells.length) {"
+                +
                 "            var receipt = {};" +
                 "            receipt.number = parseInt(cells[receiptIndex].innerText.trim()) || null;" +
                 "            receipt.amount = parseFloat(cells[amountIndex].innerText.trim()) || 0;" +
@@ -2267,66 +2502,66 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                JSONArray receiptsArray = response.getJSONArray("receipts");
-                List<Receipt> receipts = new ArrayList<>();
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        JSONArray receiptsArray = response.getJSONArray("receipts");
+                        List<Receipt> receipts = new ArrayList<>();
 
-                for (int i = 0; i < receiptsArray.length(); ++i) {
-                    JSONObject receiptsObject = receiptsArray.getJSONObject(i);
-                    Receipt receipt = new Receipt();
-                    SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy", Locale.ENGLISH);
+                        for (int i = 0; i < receiptsArray.length(); ++i) {
+                            JSONObject receiptsObject = receiptsArray.getJSONObject(i);
+                            Receipt receipt = new Receipt();
+                            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy", Locale.ENGLISH);
 
-                    // If this is true, there's a web scrapping issue
-                    if (receiptsObject.isNull("number")) {
-                        continue;
+                            // If this is true, there's a web scrapping issue
+                            if (receiptsObject.isNull("number")) {
+                                continue;
+                            }
+
+                            String receiptDateString = this.getStringValue(receiptsObject, "date");
+                            Date receiptDate = receiptDateString != null ? dateFormat.parse(receiptDateString) : null;
+
+                            receipt.number = receiptsObject.getInt("number");
+                            receipt.amount = this.getDoubleValue(receiptsObject, "amount");
+                            receipt.date = receiptDate != null ? receiptDate.getTime() : 0;
+
+                            receipts.add(receipt);
+                        }
+
+                        ReceiptsDao receiptsDao = appDatabase.receiptsDao();
+
+                        Observable<Object> deleteAllObservable = Observable.fromCompletable(receiptsDao.deleteAll());
+                        Observable<Object> insertReceiptsObservable = Observable
+                                .fromCompletable(receiptsDao.insert(receipts));
+
+                        Observable
+                                .concat(
+                                        deleteAllObservable,
+                                        insertReceiptsObservable)
+                                .subscribeOn(Schedulers.single())
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .subscribe(new Observer<Object>() {
+                                    @Override
+                                    public void onSubscribe(@NonNull Disposable d) {
+                                    }
+
+                                    @Override
+                                    public void onNext(@NonNull Object o) {
+                                    }
+
+                                    @Override
+                                    public void onError(@NonNull Throwable e) {
+                                        error(1202, e.getLocalizedMessage());
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+                                        checkDues();
+                                    }
+                                });
+                    } catch (Exception e) {
+                        error(1201, e.getLocalizedMessage());
                     }
-
-                    String receiptDateString = this.getStringValue(receiptsObject, "date");
-                    Date receiptDate = receiptDateString != null ? dateFormat.parse(receiptDateString) : null;
-
-                    receipt.number = receiptsObject.getInt("number");
-                    receipt.amount = this.getDoubleValue(receiptsObject, "amount");
-                    receipt.date = receiptDate != null ? receiptDate.getTime() : 0;
-
-                    receipts.add(receipt);
-                }
-
-                ReceiptsDao receiptsDao = appDatabase.receiptsDao();
-
-                Observable<Object> deleteAllObservable = Observable.fromCompletable(receiptsDao.deleteAll());
-                Observable<Object> insertReceiptsObservable = Observable.fromCompletable(receiptsDao.insert(receipts));
-
-                Observable
-                        .concat(
-                                deleteAllObservable,
-                                insertReceiptsObservable
-                        )
-                        .subscribeOn(Schedulers.single())
-                        .observeOn(AndroidSchedulers.mainThread())
-                        .subscribe(new Observer<Object>() {
-                            @Override
-                            public void onSubscribe(@NonNull Disposable d) {
-                            }
-
-                            @Override
-                            public void onNext(@NonNull Object o) {
-                            }
-
-                            @Override
-                            public void onError(@NonNull Throwable e) {
-                                error(1202, e.getLocalizedMessage());
-                            }
-
-                            @Override
-                            public void onComplete() {
-                                checkDues();
-                            }
-                        });
-            } catch (Exception e) {
-                error(1201, e.getLocalizedMessage());
-            }
-        });
+                });
     }
 
     /**
@@ -2336,14 +2571,15 @@ public class VTOPService extends Service {
         updateProgress(null);
 
         /*
-         *  JSON response format
+         * JSON response format
          *
-         *  {
-         *      "due_payments": true|false
-         *  }
+         * {
+         * "due_payments": true|false
+         * }
          */
         webView.evaluateJavascript("(function() {" +
-                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';" +
+                "var data = 'verifyMenu=true&winImage=' + $('#winImage').val() + '&authorizedID=' + $('#authorizedIDX').val() + '&_csrf=' + $('input[name=\"_csrf\"]').val() + '&nocache=@(new Date().getTime())';"
+                +
                 "var response = {};" +
                 "$.ajax({" +
                 "    type: 'POST'," +
@@ -2360,21 +2596,21 @@ public class VTOPService extends Service {
                 "});" +
                 "return response;" +
                 "})();", responseString -> {
-            try {
-                JSONObject response = new JSONObject(responseString);
-                boolean duePayments = response.getBoolean("due_payments");
+                    try {
+                        JSONObject response = new JSONObject(responseString);
+                        boolean duePayments = response.getBoolean("due_payments");
 
-                if (duePayments) {
-                    sharedPreferences.edit().putBoolean("duePayments", true).apply();
-                } else {
-                    sharedPreferences.edit().remove("duePayments").apply();
-                }
-            } catch (Exception e) {
-                error(1203, e.getLocalizedMessage());
-            }
+                        if (duePayments) {
+                            sharedPreferences.edit().putBoolean("duePayments", true).apply();
+                        } else {
+                            sharedPreferences.edit().remove("duePayments").apply();
+                        }
+                    } catch (Exception e) {
+                        error(1203, e.getLocalizedMessage());
+                    }
 
-            finishUp();
-        });
+                    finishUp();
+                });
     }
 
     /**
@@ -2586,52 +2822,54 @@ public class VTOPService extends Service {
         }
     }
 
-    private enum PageState {LANDING, LOGIN, HOME}
+    private enum PageState {
+        LANDING, LOGIN, HOME
+    }
 }
 
 /*
  * Error codes
  *
- * Error 101    Errors connecting to the server
- * Error 102    Error fetching user credentials
- * Error 103    Error opening sign in page
- * Error 104    Error getting captcha type
- * Error 105    Error getting default captcha image
- * Error 106    Error while attempting to sign in
- * Error 107    Unauthorised user agent used
+ * Error 101 Errors connecting to the server
+ * Error 102 Error fetching user credentials
+ * Error 103 Error opening sign in page
+ * Error 104 Error getting captcha type
+ * Error 105 Error getting default captcha image
+ * Error 106 Error while attempting to sign in
+ * Error 107 Unauthorised user agent used
  *
- * Error 201    Error fetching list of semesters
+ * Error 201 Error fetching list of semesters
  *
- * Error 301    Error fetching user's name
- * Error 302    Error fetching user's credits & GPA
+ * Error 301 Error fetching user's name
+ * Error 302 Error fetching user's credits & GPA
  *
- * Error 401    Error downloading courses
- * Error 402    Error saving courses to the database
+ * Error 401 Error downloading courses
+ * Error 402 Error saving courses to the database
  *
- * Error 501    Error downloading timetable
- * Error 502    Error saving timetable to the database
+ * Error 501 Error downloading timetable
+ * Error 502 Error saving timetable to the database
  *
- * Error 601    Error downloading attendance
- * Error 602    Error saving attendance to the database
+ * Error 601 Error downloading attendance
+ * Error 602 Error saving attendance to the database
  *
- * Error 701    Error downloading marks
- * Error 702    Error saving marks to the database
+ * Error 701 Error downloading marks
+ * Error 702 Error saving marks to the database
  *
- * Error 801    Error downloading grades
- * Error 802    Error saving grades to the database
+ * Error 801 Error downloading grades
+ * Error 802 Error saving grades to the database
  *
- * Error 901    Error downloading exam schedule
- * Error 902    Error saving exam schedule to the database
+ * Error 901 Error downloading exam schedule
+ * Error 902 Error saving exam schedule to the database
  *
- * Error 1001   Error downloading proctor info
- * Error 1002   Error saving proctor info to the database
- * Error 1003   Error downloading dean & hod info
- * Error 1004   Error saving dean & hod info to the database
+ * Error 1001 Error downloading proctor info
+ * Error 1002 Error saving proctor info to the database
+ * Error 1003 Error downloading dean & hod info
+ * Error 1004 Error saving dean & hod info to the database
  *
- * Error 1101   Error downloading spotlight
- * Error 1102   Error saving spotlight to the database
+ * Error 1101 Error downloading spotlight
+ * Error 1102 Error saving spotlight to the database
  *
- * Error 1201   Error downloading receipts
- * Error 1202   Error saving receipts to the database
- * Error 1203   Error checking for due payments
+ * Error 1201 Error downloading receipts
+ * Error 1202 Error saving receipts to the database
+ * Error 1203 Error checking for due payments
  */
